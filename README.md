@@ -55,7 +55,7 @@
 
 <p align="center"> <img src="https://i.imgur.com/gulpTE4.png" width="500" /> </p> <p align="center"> <img src="https://i.imgur.com/yiGsCF3.png" width="500" /> </p>
 
-### 7. **7) Finalizada la descarga, configuramos un entorno siguiendo los siguientes pasos en el editor:**
+### 7. **Finalizada la descarga, configuramos un entorno siguiendo los siguientes pasos en el editor:**
 
 **a) Crear un entorno virtual**: colocando el siguiente comando en terminal, reemplazando `your-env-name` por el nombre que desees darle al entorno virtual:
 
