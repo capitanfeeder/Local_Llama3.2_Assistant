@@ -3,93 +3,102 @@ import requests
 import json
 import re
 
+# Configuración de la página
+st.set_page_config(
+    page_title="Ollama Local",
+    page_icon="🦙",
+    layout="centered"
+)
+
 # Función para enviar un mensaje al backend y recibir la respuesta en forma de stream
-def send_message(message):
+def send_message(message, use_pdf):
     """
     Envía un mensaje al backend y recibe la respuesta en forma de stream.
-
+    
     Args:
         message (str): El mensaje del usuario que se enviará al backend.
-
+        use_pdf (bool): Indica si el mensaje debe procesarse utilizando el PDF cargado.
+    
     Returns:
         iter: Un iterador que proporciona las líneas de la respuesta del backend.
     """
-    response = requests.post('http://localhost:8000/chat', json={'message': message}, stream=True)
+    url = 'http://localhost:8000/chat' if not use_pdf else 'http://localhost:8000/chat_with_pdf'
+    response = requests.post(url, json={'message': message}, stream=True)
     return response.iter_lines(decode_unicode=True)
 
-# Función para verificar si el texto contiene bloques de código
-def is_code(text):
-    """
-    Verifica si el texto contiene bloques de código.
+# Función para cargar el PDF al backend
+def upload_pdf(file):
+    response = requests.post("http://localhost:8000/upload_pdf", files={"file": file})
+    if response.status_code == 200:
+        return response.json().get("message")
+    return response.json().get("error")
 
-    Args:
-        text (str): El texto a verificar.
-
-    Returns:
-        bool: True si el texto contiene bloques de código, False en caso contrario.
-    """
-    return re.search(r'```.*```', text, re.DOTALL) is not None
+# Función para eliminar el PDF cargado
+def delete_pdf():
+    response = requests.post("http://localhost:8000/delete_pdf")
+    if response.status_code == 200:
+        return response.json().get("message")
+    return response.json().get("error")
 
 # Función para formatear el texto de respuesta
 def format_response(text):
-    """
-    Formatea el texto de respuesta para resaltar bloques de código y reemplazar etiquetas HTML.
-
-    Args:
-        text (str): El texto de respuesta a formatear.
-
-    Returns:
-        str: El texto formateado.
-    """
-    # Encuentra todos los bloques de código y los formatea
     code_blocks = re.findall(r'```(.*?)```', text, re.DOTALL)
     for code_block in code_blocks:
         formatted_code = f"```\n{code_block}\n```"
         text = text.replace(f'```{code_block}```', formatted_code)
     
-    # Reemplaza las etiquetas <br> con saltos de línea
     text = text.replace('<br>', '\n')
-    
     return text
 
-# Función principal
+# Interfaz principal
 def main():
-    """
-    Función principal que maneja la interfaz de usuario y la lógica de chat.
+    st.title("Asistente Local Ollama con Capacidad RAG")
 
-    Esta función configura la interfaz de Streamlit, maneja la entrada del usuario,
-    envía mensajes al backend, y muestra las respuestas del asistente en tiempo real.
-    """
-    st.title("Asistente Local Ollama")
-    st.caption("Chatea con tu modelo Ollama local para obtener respuestas a tus preguntas. 🦙")
+    # Barra lateral para cargar/eliminar PDF
+    st.sidebar.header("Configuración de PDF")
+    pdf_file = st.sidebar.file_uploader("Sube un archivo PDF", type="pdf")
+    pdf_uploaded = False
+
+    if pdf_file:
+        upload_response = upload_pdf(pdf_file)
+        st.sidebar.success(upload_response)
+        pdf_uploaded = True
+
+    if st.sidebar.button("Eliminar PDF"):
+        delete_response = delete_pdf()
+        st.sidebar.info(delete_response)
+        pdf_uploaded = False
+
+    # Mensaje de indicación de estado del PDF
+    if pdf_uploaded:
+        st.sidebar.markdown("📄 PDF cargado: Las respuestas se basarán en este archivo.")
+    else:
+        st.sidebar.markdown("💬 No hay PDF cargado: El chatbot responderá de forma general.")
 
     # Inicializa el historial de chat si no existe
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # Layout principal
+    # Muestra el historial de chat
     chat_placeholder = st.container()
-
     with chat_placeholder:
-        # Muestra el historial de chat
         for message in st.session_state.messages:
             with st.chat_message(message["role"], avatar=message["avatar"]):
                 st.markdown(message["content"])
 
-    # Área de entrada del usuario en la parte inferior
-    prompt = st.chat_input("¿En qué puedo ayudarte?")
+    # Entrada de mensaje del usuario
+    prompt = st.chat_input("Escribe tu mensaje para el asistente")
 
     if prompt:
         # Añade el mensaje del usuario al historial de chat
-        st.session_state.messages.append({"role": "user", "content": prompt, "avatar": "👨‍💼"})  # Emoji para el usuario
-        # Muestra el mensaje del usuario en el contenedor de chat
+        st.session_state.messages.append({"role": "user", "content": prompt, "avatar": "👨‍💼"})
         with chat_placeholder:
-            with st.chat_message("user", avatar="👨‍💼"):  # Emoji para el usuario
+            with st.chat_message("user", avatar="👨‍💼"):
                 st.markdown(prompt)
-        
+
+        # Determina si se debe utilizar el PDF cargado en la respuesta
         with st.spinner('Generando respuesta...'):
-            # Envía el mensaje del usuario al backend y obtiene la respuesta en stream
-            response_stream = send_message(prompt)
+            response_stream = send_message(prompt, pdf_uploaded)
             assistant_response = ""
             assistant_message_placeholder = st.empty()
 
@@ -98,9 +107,7 @@ def main():
                     try:
                         chunk_data = json.loads(chunk)
                         assistant_response += chunk_data
-                        # Formatea la respuesta incrementalmente
                         formatted_response = format_response(assistant_response)
-                        # Actualiza el mensaje del asistente en tiempo real
                         with assistant_message_placeholder.container():
                             with st.chat_message("assistant", avatar="🤖"):
                                 st.markdown(formatted_response, unsafe_allow_html=True)
@@ -108,8 +115,7 @@ def main():
                         pass
 
         # Añade el mensaje del asistente al historial de chat
-        st.session_state.messages.append({"role": "assistant", "content": formatted_response, "avatar": "🤖"})  # Emoji para el asistente
-
+        st.session_state.messages.append({"role": "assistant", "content": formatted_response, "avatar": "🤖"})
 
 if __name__ == "__main__":
     main()
